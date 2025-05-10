@@ -1809,6 +1809,13 @@ impl Connection {
     }
 
     async fn handle_login_request_without_validation(&mut self, lr: &LoginRequest) {
+		log::info!(
+			"[LOGIN] handle_login_request_without_validation: ID={}, Name={}, Platform={}, Version={}",
+			lr.my_id,
+			lr.my_name,
+			lr.my_platform,
+			lr.version
+		);
         self.lr = lr.clone();
         if let Some(o) = lr.option.as_ref() {
             self.options_in_login = Some(o.clone());
@@ -1865,6 +1872,13 @@ impl Connection {
 
     async fn on_message(&mut self, msg: Message) -> bool {
         if let Some(message::Union::LoginRequest(lr)) = msg.union {
+			log::info!(
+				"[LOGIN] Incoming login request from {} ({}) platform={} version={}",
+				lr.my_id,
+				lr.my_name,
+				lr.my_platform,
+				lr.version
+			);
             self.handle_login_request_without_validation(&lr).await;
             if self.authorized {
                 return true;
@@ -1930,7 +1944,10 @@ impl Connection {
             }
 
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
-            self.try_start_cm_ipc();
+			{
+				self.try_start_cm_ipc();
+				log::info!("[IPC] try_start_cm_ipc() called");
+			}
 
             #[cfg(not(target_os = "linux"))]
             let err_msg = "".to_owned();
@@ -1942,6 +1959,7 @@ impl Connection {
             // If err is LOGIN_MSG_DESKTOP_SESSION_NOT_READY, just keep this msg and go on checking password.
             if !err_msg.is_empty() && err_msg != crate::client::LOGIN_MSG_DESKTOP_SESSION_NOT_READY
             {
+				log::warn!("[CM] Desktop not ready: {}", err_msg);
                 self.send_login_error(err_msg).await;
                 return true;
             }
@@ -1978,7 +1996,12 @@ impl Connection {
                 && !(crate::get_builtin_option(keys::OPTION_ALLOW_LOGON_SCREEN_PASSWORD) == "Y"
                     && is_logon()))
                 || password::approve_mode() == ApproveMode::Both && !password::has_valid_password()
-            {
+            {	
+				log::info!(
+					"[CM] Starting connection manager for {} ({}) with password empty or denied",
+					lr.my_id,
+					lr.my_name
+				);
                 self.try_start_cm(lr.my_id, lr.my_name, false);
                 if hbb_common::get_version_number(&lr.version)
                     >= hbb_common::get_version_number("1.2.0")
@@ -2028,6 +2051,11 @@ impl Connection {
                         #[cfg(target_os = "linux")]
                         self.linux_headless_handle.wait_desktop_cm_ready().await;
                         self.send_logon_response().await;
+						log::info!(
+							"[CM] Authorized, starting CM for {} ({})",
+							lr.my_id,
+							lr.my_name
+						);
                         self.try_start_cm(lr.my_id, lr.my_name, self.authorized);
                     } else {
                         self.send_login_error(err_msg).await;
