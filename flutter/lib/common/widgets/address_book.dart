@@ -8,6 +8,7 @@ import 'package:flutter_hbb/common/formatter/id_formatter.dart';
 import 'package:flutter_hbb/common/hbbs/hbbs.dart';
 import 'package:flutter_hbb/common/widgets/peer_card.dart';
 import 'package:flutter_hbb/common/widgets/peers_view.dart';
+import 'package:flutter_hbb/common/widgets/resizable_side_panel.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/widgets/popup_menu.dart';
 import 'package:flutter_hbb/models/ab_model.dart';
@@ -36,6 +37,8 @@ class AddressBook extends StatefulWidget {
 
 class _AddressBookState extends State<AddressBook> {
   var menuPos = RelativeRect.fill;
+  final _tagsPanel = ResizablePanelController(
+      optionKey: kOptionAbTagsPanelWidth, defaultWidth: 200, maxWidth: 300);
 
   @override
   Widget build(BuildContext context) => Obx(() {
@@ -73,39 +76,43 @@ class _AddressBookState extends State<AddressBook> {
       });
 
   Widget _buildAddressBookLandscape() {
-    return Row(
-      children: [
-        Offstage(
-            offstage: hideAbTagsPanel.value,
-            child: Container(
-              decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                      color: Theme.of(context).colorScheme.background)),
+    final hidden = hideAbTagsPanel.value;
+    final panel = Container(
+      decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Theme.of(context).colorScheme.background)),
+      child: Container(
+        height: double.infinity,
+        child: Column(
+          children: [
+            _buildAbDropdown(),
+            _buildTagHeader().marginOnly(
+                left: 8.0,
+                right: gFFI.abModel.legacyMode.value ? 8.0 : 0,
+                top: gFFI.abModel.legacyMode.value ? 8.0 : 0),
+            Expanded(
               child: Container(
-                width: 200,
+                width: double.infinity,
                 height: double.infinity,
-                child: Column(
-                  children: [
-                    _buildAbDropdown(),
-                    _buildTagHeader().marginOnly(
-                        left: 8.0,
-                        right: gFFI.abModel.legacyMode.value ? 8.0 : 0,
-                        top: gFFI.abModel.legacyMode.value ? 8.0 : 0),
-                    Expanded(
-                      child: Container(
-                        width: double.infinity,
-                        height: double.infinity,
-                        child: _buildTags(),
-                      ),
-                    ),
-                    _buildAbPermission(),
-                  ],
-                ),
+                child: _buildTags(),
               ),
-            ).marginOnly(right: 12.0)),
-        _buildPeersViews()
-      ],
+            ),
+            _buildAbPermission(),
+          ],
+        ),
+      ),
+    );
+    final content = _buildPeersViews();
+    return LayoutBuilder(
+      builder: (context, constraints) => Row(
+        children: [
+          Offstage(
+            offstage: hidden,
+            child: _tagsPanel.wrap(context, constraints.maxWidth, child: panel),
+          ),
+          content,
+        ],
+      ),
     );
   }
 

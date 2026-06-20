@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/hbbs/hbbs.dart';
 import 'package:flutter_hbb/common/widgets/login.dart';
 import 'package:flutter_hbb/common/widgets/peers_view.dart';
+import 'package:flutter_hbb/common/widgets/resizable_side_panel.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:get/get.dart';
 
@@ -26,6 +27,10 @@ class _MyGroupState extends State<MyGroup> {
   RxString get searchAccessibleItemNameText =>
       gFFI.groupModel.searchAccessibleItemNameText;
   static TextEditingController searchUserController = TextEditingController();
+  final _devicesPanel = ResizablePanelController(
+      optionKey: kOptionAccessibleDevicesPanelWidth,
+      defaultWidth: 150,
+      maxWidth: 300);
 
   @override
   Widget build(BuildContext context) {
@@ -58,38 +63,40 @@ class _MyGroupState extends State<MyGroup> {
   }
 
   Widget _buildLandscape() {
-    return Row(
-      children: [
-        Container(
-          decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border:
-                  Border.all(color: Theme.of(context).colorScheme.background)),
-          child: Container(
-            width: 150,
-            height: double.infinity,
-            child: Column(
-              children: [
-                _buildLeftHeader(),
-                Expanded(
-                  child: Container(
-                    width: double.infinity,
-                    height: double.infinity,
-                    child: _buildLeftList(),
-                  ),
-                )
-              ],
-            ),
-          ),
-        ).marginOnly(right: 12.0),
-        Expanded(
-          child: Align(
-              alignment: Alignment.topLeft,
-              child: MyGroupPeerView(
-                menuPadding: widget.menuPadding,
-              )),
-        )
-      ],
+    final panel = Container(
+      decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Theme.of(context).colorScheme.background)),
+      child: Container(
+        height: double.infinity,
+        child: Column(
+          children: [
+            _buildLeftHeader(),
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                height: double.infinity,
+                child: _buildLeftList(),
+              ),
+            )
+          ],
+        ),
+      ),
+    );
+    final content = Expanded(
+      child: Align(
+          alignment: Alignment.topLeft,
+          child: MyGroupPeerView(
+            menuPadding: widget.menuPadding,
+          )),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) => Row(
+        children: [
+          _devicesPanel.wrap(context, constraints.maxWidth, child: panel),
+          content,
+        ],
+      ),
     );
   }
 
