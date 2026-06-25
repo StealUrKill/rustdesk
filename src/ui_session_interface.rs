@@ -874,6 +874,25 @@ impl<T: InvokeUiSession> Session<T> {
         }
     }
 
+    pub fn select_screen_content(&self, display: i32, x: i32, y: i32, whole_desktop: bool) {
+        let mut content = SelectScreenContent::new();
+        content.display = display;
+        if whole_desktop {
+            content.set_whole_desktop(true);
+        } else {
+            content.set_window_at_point(WindowAtPoint {
+                x,
+                y,
+                ..Default::default()
+            });
+        }
+        let mut misc = Misc::new();
+        misc.set_select_screen_content(content);
+        let mut msg_out = Message::new();
+        msg_out.set_misc(misc);
+        self.send(Data::Message(msg_out));
+    }
+
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn enter(&self, keyboard_mode: String) {
         let session_id = self.lc.read().unwrap().session_id as u128;

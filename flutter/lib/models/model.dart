@@ -850,10 +850,31 @@ class FfiModel with ChangeNotifier {
             evt['original_height'] ?? kInvalidResolutionValue.toString()) ??
         kInvalidResolutionValue;
     newDisplay._scale = _pi.scaleOfDisplay(display);
+    final oldDisplay = display < _pi.displays.length ? _pi.displays[display] : null;
     _pi.displays[display] = newDisplay;
+
+    final sizeChanged = oldDisplay == null ||
+        oldDisplay.width != newDisplay.width ||
+        oldDisplay.height != newDisplay.height;
+    if (sizeChanged &&
+        _pi.isSupportMultiUiSession &&
+        _pi.currentDisplay != display) {
+      bind.sessionSetSize(
+        sessionId: sessionId,
+        display: display,
+        width: newDisplay.width,
+        height: newDisplay.height,
+      );
+    }
 
     if (!_pi.isSupportMultiUiSession || _pi.currentDisplay == display) {
       updateCurDisplay(sessionId);
+      final isWholeDesktop = newDisplay.originalWidth > 0;
+      parent.target?.inputModel.screenContentMode.value =
+          isWholeDesktop ? 'whole_desktop' : 'single_window';
+    }
+    if (_pi.currentDisplay == kAllDisplayValue) {
+      parent.target?.inputModel.screenContentMode.value = 'whole_desktop';
     }
 
     if (!_pi.isSupportMultiUiSession) {
@@ -1410,6 +1431,8 @@ class FfiModel with ChangeNotifier {
       }
       Map<String, dynamic> features = json.decode(evt['features']);
       _pi.features.privacyMode = features['privacy_mode'] == true;
+      _pi.features.singleWindowCapture =
+          features['single_window_capture'] == true;
       if (!isCache) {
         handleResolutions(peerId, evt["resolutions"]);
       }
@@ -4063,6 +4086,7 @@ class Resolution {
 
 class Features {
   bool privacyMode = false;
+  bool singleWindowCapture = false;
 }
 
 const kInvalidDisplayIndex = -1;

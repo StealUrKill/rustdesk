@@ -269,6 +269,7 @@ pub struct Connection {
     file_timer: crate::RustDeskInterval,
     file_transfer: Option<(String, bool)>,
     view_camera: bool,
+    selected_window: Option<isize>,
     terminal: bool,
     port_forward_socket: Option<Framed<TcpStream, BytesCodec>>,
     port_forward_address: String,
@@ -461,6 +462,7 @@ impl Connection {
             file_timer: crate::rustdesk_interval(time::interval(SEC30)),
             file_transfer: None,
             view_camera: false,
+            selected_window: None,
             terminal: false,
             port_forward_socket: None,
             port_forward_address: "".to_owned(),
@@ -1011,6 +1013,8 @@ impl Connection {
                 _ = second_timer.tick() => {
                     #[cfg(windows)]
                     conn.portable_check();
+                    #[cfg(windows)]
+                    conn.revert_if_selected_window_gone().await;
                     raii::AuthedConnID::check_wake_lock_on_setting_changed();
                     if let Some((instant, minute)) = conn.auto_disconnect_timer.as_ref() {
                         if instant.elapsed().as_secs() > minute * 60 {
@@ -1721,6 +1725,8 @@ impl Connection {
             privacy_mode: privacy_mode::is_privacy_mode_supported(),
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             terminal,
+            #[cfg(windows)]
+            single_window_capture: true,
             ..Default::default()
         })
         .into();
@@ -3304,6 +3310,9 @@ impl Connection {
                         let set = displays.set.iter().map(|d| *d as usize).collect::<Vec<_>>();
                         self.capture_displays(&add, &sub, &set).await;
                     }
+                    Some(misc::Union::SelectScreenContent(s)) => {
+                        self.handle_select_screen_content(s).await;
+                    }
                     #[cfg(windows)]
                     Some(misc::Union::ToggleVirtualDisplay(t)) => {
                         self.toggle_virtual_display(t).await;
@@ -3975,8 +3984,110 @@ impl Connection {
         });
     }
 
+    async fn handle_select_screen_content(&mut self, s: SelectScreenContent) {
+        let hint = s.display as usize;
+        match s.union {
+            Some(select_screen_content::Union::WholeDesktop(_)) => {
+                let display = self.resolve_display(hint, None);
+                self.set_capture_window(None, display).await;
+            }
+            Some(select_screen_content::Union::WindowAtPoint(p)) => {
+                #[cfg(windows)]
+                {
+                    match crate::platform::windows::window_at_point(p.x, p.y) {
+                        Some((hwnd, rect)) => {
+                            let display = self.resolve_display(hint, Some(rect));
+                            log::info!(
+                                "select_screen_content: window {:#x} rect={:?} from point ({},{}) -> display {}",
+                                hwnd as usize,
+                                rect,
+                                p.x,
+                                p.y,
+                                display
+                            );
+                            crate::platform::windows::set_window_foreground(hwnd);
+                            self.set_capture_window(Some(hwnd), display).await;
+                        }
+                        None => {
+                            log::info!("select_screen_content: no window at ({},{})", p.x, p.y);
+                        }
+                    }
+                }
+                #[cfg(not(windows))]
+                {
+                    let _ = (p.x, p.y, hint);
+                }
+            }
+            Some(_) | None => {}
+        }
+    }
+
+    fn resolve_display(&self, hint: usize, window_rect: Option<(i32, i32, i32, i32)>) -> usize {
+        let displays = display_service::get_sync_displays();
+        let n = displays.len();
+        if let Some((l, t, r, b)) = window_rect {
+            let cx = l + (r - l) / 2;
+            let cy = t + (b - t) / 2;
+            if let Some(i) = displays.iter().position(|d| {
+                cx >= d.x && cx < d.x + d.width && cy >= d.y && cy < d.y + d.height
+            }) {
+                return i;
+            }
+        }
+        if hint < n {
+            return hint;
+        }
+        if self.display_idx < n {
+            return self.display_idx;
+        }
+        0
+    }
+
+    #[cfg(windows)]
+    async fn revert_if_selected_window_gone(&mut self) {
+        if let Some(hwnd) = self.selected_window {
+            if !crate::platform::windows::is_window_valid(hwnd) {
+                log::info!(
+                    "selected window {:#x} closed, reverting to whole desktop",
+                    hwnd as usize
+                );
+                let display = self.display_idx;
+                self.set_capture_window(None, display).await;
+            }
+        }
+    }
+
+    async fn set_capture_window(&mut self, hwnd: Option<isize>, display: usize) {
+        if self.selected_window == hwnd {
+            return;
+        }
+        let old_service_name = video_service::get_service_name(self.video_source(), display);
+        self.selected_window = hwnd;
+        self.display_idx = display;
+        let new_source = self.video_source();
+        let new_service_name = video_service::get_service_name(new_source, display);
+        if let Some(server) = self.server.upgrade() {
+            let mut lock = server.write().unwrap();
+            if !lock.contains(&new_service_name) {
+                lock.add_service(Box::new(video_service::new(new_source, display)));
+            }
+            lock.subscribe(&old_service_name, self.inner.clone(), false);
+            lock.subscribe(&new_service_name, self.inner.clone(), true);
+        }
+        if let Some(msg_out) =
+            video_service::make_display_changed_msg(display, None, self.video_source())
+        {
+            self.send(msg_out).await;
+        }
+    }
+
     async fn handle_switch_display(&mut self, s: SwitchDisplay) {
         let display_idx = s.display as usize;
+        if self.selected_window.is_some() {
+            let display = self.resolve_display(display_idx, None);
+            self.set_capture_window(None, display).await;
+            return;
+        }
         if self.display_idx != display_idx {
             if let Some(server) = self.server.upgrade() {
                 self.switch_display_to(display_idx, server.clone());
@@ -4007,6 +4118,9 @@ impl Connection {
     }
 
     fn video_source(&self) -> VideoSource {
+        if let Some(hwnd) = self.selected_window {
+            return VideoSource::Window(hwnd);
+        }
         if self.view_camera {
             VideoSource::Camera
         } else {
@@ -4058,7 +4172,26 @@ impl Connection {
         self.update_auto_disconnect_timer();
     }
 
+    fn revert_selected_window(&mut self) -> Option<Message> {
+        let hwnd = self.selected_window?;
+        let window_service =
+            video_service::get_service_name(VideoSource::Window(hwnd), self.display_idx);
+        self.selected_window = None;
+        if let Some(server) = self.server.upgrade() {
+            server
+                .write()
+                .unwrap()
+                .subscribe(&window_service, self.inner.clone(), false);
+        }
+        video_service::make_display_changed_msg(self.display_idx, None, self.video_source())
+    }
+
     async fn capture_displays(&mut self, add: &[usize], sub: &[usize], set: &[usize]) {
+        let reverted_display_msg = if set.len() > 1 || add.len() > 1 {
+            self.revert_selected_window()
+        } else {
+            None
+        };
         let video_source = self.video_source();
         if let Some(sever) = self.server.upgrade() {
             let mut lock = sever.write().unwrap();
@@ -4090,6 +4223,9 @@ impl Connection {
                 );
             }
             drop(lock);
+        }
+        if let Some(msg_out) = reverted_display_msg {
+            self.send(msg_out).await;
         }
     }
 

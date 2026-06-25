@@ -1585,6 +1585,44 @@ class _DisplayMenuState extends State<_DisplayMenu> {
       if (ffi.connType == ConnType.defaultConn) {
         menuChildren.add(widget.pluginItem);
       }
+
+      if (mainGetLocalBoolOptionSync(kOptionShowScreenContentMainToolbar) &&
+          pi.features.singleWindowCapture &&
+          pi.currentDisplay != kAllDisplayValue) {
+        menuChildren.addAll([
+          Divider(),
+          _SubmenuButton(
+            ffi: widget.ffi,
+            menuChildren: [
+              RdoMenuButton<String>(
+                value: 'single_window',
+                groupValue: ffi.inputModel.screenContentMode.value,
+                onChanged: (_) {
+                  ffi.inputModel.pickScreenContent.value = true;
+                },
+                child: Text(translate('Select single window')),
+                ffi: ffi,
+              ),
+              RdoMenuButton<String>(
+                value: 'whole_desktop',
+                groupValue: ffi.inputModel.screenContentMode.value,
+                onChanged: (_) {
+                  bind.sessionSelectScreenContent(
+                    sessionId: ffi.sessionId,
+                    display: pi.currentDisplay,
+                    x: 0,
+                    y: 0,
+                    wholeDesktop: true,
+                  );
+                },
+                child: Text(translate('Show whole desktop')),
+                ffi: ffi,
+              ),
+            ],
+            child: Text(translate('Select screen content')),
+          ),
+        ]);
+      }
       return menuChildren;
     }
 

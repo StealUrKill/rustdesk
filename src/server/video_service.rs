@@ -196,6 +196,7 @@ impl VideoFrameController {
 pub enum VideoSource {
     Monitor,
     Camera,
+    Window(isize),
 }
 
 impl VideoSource {
@@ -203,6 +204,7 @@ impl VideoSource {
         match self {
             VideoSource::Monitor => "monitor",
             VideoSource::Camera => "camera",
+            VideoSource::Window(_) => "window",
         }
     }
 
@@ -212,6 +214,10 @@ impl VideoSource {
 
     pub fn is_camera(&self) -> bool {
         matches!(self, VideoSource::Camera)
+    }
+
+    pub fn is_window(&self) -> bool {
+        matches!(self, VideoSource::Window(_))
     }
 }
 
@@ -237,7 +243,10 @@ impl DerefMut for VideoService {
 }
 
 pub fn get_service_name(source: VideoSource, idx: usize) -> String {
-    format!("{}{}", source.service_name_prefix(), idx)
+    match source {
+        VideoSource::Window(hwnd) => format!("window{}", hwnd),
+        _ => format!("{}{}", source.service_name_prefix(), idx),
+    }
 }
 
 pub fn new(source: VideoSource, idx: usize) -> GenericService {
@@ -530,7 +539,31 @@ fn get_capturer(
     match source {
         VideoSource::Monitor => get_capturer_monitor(current, portable_service_running),
         VideoSource::Camera => get_capturer_camera(current),
+        VideoSource::Window(hwnd) => get_capturer_window(hwnd),
     }
+}
+
+#[cfg(windows)]
+fn get_capturer_window(hwnd: isize) -> ResultType<CapturerInfo> {
+    let (l, t, r, b) = crate::platform::windows::window_rect(hwnd)
+        .ok_or_else(|| anyhow!("Failed to get rect for window {:#x}", hwnd))?;
+    let width = (r - l).max(1) as usize;
+    let height = (b - t).max(1) as usize;
+    Ok(CapturerInfo {
+        origin: (l, t),
+        width,
+        height,
+        ndisplay: 1,
+        current: 0,
+        privacy_mode_id: INVALID_PRIVACY_MODE_CONN_ID,
+        _capturer_privacy_mode_id: INVALID_PRIVACY_MODE_CONN_ID,
+        capturer: Box::new(scrap::WindowCapturer::new(hwnd, width, height)),
+    })
+}
+
+#[cfg(not(windows))]
+fn get_capturer_window(_hwnd: isize) -> ResultType<CapturerInfo> {
+    bail!("Single Window capture is only supported on Windows");
 }
 
 fn run(vs: VideoService) -> ResultType<()> {
@@ -715,6 +748,49 @@ fn run(vs: VideoService) -> ResultType<()> {
             // This check may be redundant, but it is better to be safe.
             // The previous check in `sp.is_option_true(OPTION_REFRESH)` block may be enough.
             try_broadcast_display_changed(&sp, display_idx, &c, false)?;
+        }
+
+        #[cfg(windows)]
+        if vs.source.is_window() && last_check_displays.elapsed().as_millis() > 200 {
+            last_check_displays = now;
+            if let VideoSource::Window(hwnd) = vs.source {
+                if let Some((l, t, r, b)) = crate::platform::windows::window_rect(hwnd) {
+                    let w = (r - l).max(1) as usize;
+                    let h = (b - t).max(1) as usize;
+                    let moved = l != c.origin.0 || t != c.origin.1;
+                    let resized = w != c.width || h != c.height;
+                    if moved || resized {
+                        let display_info = DisplayInfo {
+                            x: l,
+                            y: t,
+                            width: r - l,
+                            height: b - t,
+                            ..Default::default()
+                        };
+                        if let Some(msg_out) =
+                            make_display_changed_msg(display_idx, Some(display_info), vs.source)
+                        {
+                            let msg_out = Arc::new(msg_out);
+                            sp.send_shared(msg_out.clone());
+                            sp.snapshot(move |sps| {
+                                sps.send_shared(msg_out.clone());
+                                Ok(())
+                            })?;
+                        }
+                        if resized {
+                            log::info!(
+                                "window {:#x} resized to {}x{}, switch",
+                                hwnd as usize,
+                                w,
+                                h
+                            );
+                            bail!("SWITCH");
+                        } else {
+                            c.origin = (l, t);
+                        }
+                    }
+                }
+            }
         }
 
         frame_controller.reset();
@@ -1272,6 +1348,21 @@ pub fn make_display_changed_msg(
             VideoSource::Camera => camera::Cameras::get_sync_cameras()
                 .get(display_idx)?
                 .clone(),
+            VideoSource::Window(_hwnd) => {
+                #[cfg(windows)]
+                {
+                    let (l, t, r, b) = crate::platform::windows::window_rect(_hwnd)?;
+                    DisplayInfo {
+                        x: l,
+                        y: t,
+                        width: r - l,
+                        height: b - t,
+                        ..Default::default()
+                    }
+                }
+                #[cfg(not(windows))]
+                return None;
+            }
         },
     };
     let mut misc = Misc::new();
@@ -1284,6 +1375,7 @@ pub fn make_display_changed_msg(
         cursor_embedded: match source {
             VideoSource::Monitor => display_service::capture_cursor_embedded(),
             VideoSource::Camera => false,
+            VideoSource::Window(_) => false,
         },
         #[cfg(not(target_os = "android"))]
         resolutions: Some(SupportedResolutions {
@@ -1299,6 +1391,7 @@ pub fn make_display_changed_msg(
                     .ok()
                     .into_iter()
                     .collect(),
+                VideoSource::Window(_) => vec![],
             },
             ..SupportedResolutions::default()
         })

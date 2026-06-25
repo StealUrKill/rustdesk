@@ -761,6 +761,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Switch display", "디스플레이 전환"),
         ("Show monitor switch button on the main toolbar", "기본 도구 모음에 모니터 전환 버튼 표시"),
         ("Show on the minimized toolbar", "최소화된 도구 모음에 표시"),
+        ("Show screen content option on the main toolbar", ""),
+        ("Select screen content", ""),
+        ("Select single window", ""),
+        ("Show whole desktop", ""),
         ("All monitors", "모든 모니터"),
         ("#{} monitor", "{}번 모니터"),
     ].iter().cloned().collect();

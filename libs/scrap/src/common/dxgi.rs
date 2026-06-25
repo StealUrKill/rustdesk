@@ -118,6 +118,115 @@ impl<'a> crate::TraitPixelBuffer for PixelBuffer<'a> {
     }
 }
 
+pub struct WindowCapturer {
+    hwnd: winapi::shared::windef::HWND,
+    width: usize,
+    height: usize,
+    data: Vec<u8>,
+    old: Vec<u8>,
+    hdc_mem: winapi::shared::windef::HDC,
+    hbmp: winapi::shared::windef::HBITMAP,
+    prev_bmp: winapi::shared::windef::HGDIOBJ,
+}
+
+impl WindowCapturer {
+    pub fn new(hwnd: isize, width: usize, height: usize) -> Self {
+        use winapi::um::wingdi::{CreateCompatibleBitmap, CreateCompatibleDC, SelectObject};
+        use winapi::um::winuser::{GetDC, ReleaseDC};
+        let hwnd = hwnd as winapi::shared::windef::HWND;
+        let (hdc_mem, hbmp, prev_bmp) = unsafe {
+            let hdc_screen = GetDC(std::ptr::null_mut());
+            let hdc_mem = CreateCompatibleDC(hdc_screen);
+            let hbmp = CreateCompatibleBitmap(hdc_screen, width as i32, height as i32);
+            let prev_bmp = SelectObject(hdc_mem, hbmp as _);
+            ReleaseDC(std::ptr::null_mut(), hdc_screen);
+            (hdc_mem, hbmp, prev_bmp)
+        };
+        WindowCapturer {
+            hwnd,
+            width,
+            height,
+            data: vec![0u8; width * height * 4],
+            old: Vec::new(),
+            hdc_mem,
+            hbmp,
+            prev_bmp,
+        }
+    }
+}
+
+impl Drop for WindowCapturer {
+    fn drop(&mut self) {
+        use winapi::um::wingdi::{DeleteDC, DeleteObject, SelectObject};
+        unsafe {
+            SelectObject(self.hdc_mem, self.prev_bmp);
+            DeleteObject(self.hbmp as _);
+            DeleteDC(self.hdc_mem);
+        }
+    }
+}
+
+impl crate::TraitCapturer for WindowCapturer {
+    fn frame<'a>(
+        &'a mut self,
+        _timeout: std::time::Duration,
+    ) -> std::io::Result<crate::Frame<'a>> {
+        use winapi::um::wingdi::{
+            GetDIBits, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+        };
+        use winapi::um::winuser::PrintWindow;
+        const PW_RENDERFULLCONTENT: u32 = 0x0000_0002;
+        let w = self.width as i32;
+        let h = self.height as i32;
+        unsafe {
+            if PrintWindow(self.hwnd, self.hdc_mem, PW_RENDERFULLCONTENT) == 0 {
+                return Err(std::io::ErrorKind::WouldBlock.into());
+            }
+            let mut bmi: BITMAPINFO = std::mem::zeroed();
+            bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+            bmi.bmiHeader.biWidth = w;
+            bmi.bmiHeader.biHeight = -h; // negative => top-down rows (BGRA)
+            bmi.bmiHeader.biPlanes = 1;
+            bmi.bmiHeader.biBitCount = 32;
+            bmi.bmiHeader.biCompression = BI_RGB;
+            if GetDIBits(
+                self.hdc_mem,
+                self.hbmp,
+                0,
+                h as u32,
+                self.data.as_mut_ptr() as *mut _,
+                &mut bmi,
+                DIB_RGB_COLORS,
+            ) == 0
+            {
+                return Err(std::io::ErrorKind::WouldBlock.into());
+            }
+        }
+        super::would_block_if_equal(&mut self.old, &self.data)?;
+        Ok(crate::Frame::PixelBuffer(PixelBuffer::with_BGRA(
+            &self.data,
+            self.width,
+            self.height,
+        )))
+    }
+
+    fn is_gdi(&self) -> bool {
+        true
+    }
+
+    fn set_gdi(&mut self) -> bool {
+        true
+    }
+
+    #[cfg(feature = "vram")]
+    fn device(&self) -> crate::AdapterDevice {
+        crate::AdapterDevice::default()
+    }
+
+    #[cfg(feature = "vram")]
+    fn set_output_texture(&mut self, _texture: bool) {}
+}
+
 pub struct Display(dxgi::Display);
 
 impl Display {

@@ -2092,6 +2092,18 @@ pub fn session_toggle_virtual_display(session_id: SessionID, index: i32, on: boo
     }
 }
 
+pub fn session_select_screen_content(
+    session_id: SessionID,
+    display: i32,
+    x: i32,
+    y: i32,
+    whole_desktop: bool,
+) {
+    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
+        session.select_screen_content(display, x, y, whole_desktop);
+    }
+}
+
 pub fn session_printer_response(
     session_id: SessionID,
     id: i32,

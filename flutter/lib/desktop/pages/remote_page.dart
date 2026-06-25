@@ -800,7 +800,9 @@ class _ImagePaintState extends State<ImagePaint> {
           }
 
           return MouseRegion(
-              cursor: cursorOverImage.isTrue
+              cursor: widget.ffi.inputModel.pickScreenContent.value
+                  ? SystemMouseCursors.precise
+                  : cursorOverImage.isTrue
                   ? c.cursorEmbedded
                       ? SystemMouseCursors.none
                       // Hide cursor when relative mouse mode is active

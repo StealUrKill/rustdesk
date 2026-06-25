@@ -3351,6 +3351,7 @@ Future<List<Rect>> getScreenRectList() async {
 
 openMonitorInTheSameTab(int i, FFI ffi, PeerInfo pi,
     {bool updateCursorPos = true}) {
+  ffi.inputModel.pickScreenContent.value = false;
   final displays = i == kAllDisplayValue
       ? List.generate(pi.displays.length, (index) => index)
       : [i];

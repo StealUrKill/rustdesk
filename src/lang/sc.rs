@@ -761,6 +761,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Switch display", "Càmbia ischermu"),
         ("Show monitor switch button on the main toolbar", "Mustra su butone de càmbiu de monitor in sa barra de aina printzipale"),
         ("Show on the minimized toolbar", "Mustra in sa barra de aina minimizada"),
+        ("Show screen content option on the main toolbar", ""),
+        ("Select screen content", ""),
+        ("Select single window", ""),
+        ("Show whole desktop", ""),
         ("All monitors", "Totu sos ischermos"),
         ("#{} monitor", "Ischermu {}"),
     ].iter().cloned().collect();

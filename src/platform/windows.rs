@@ -131,6 +131,47 @@ pub fn get_focused_display(displays: Vec<DisplayInfo>) -> Option<usize> {
     }
 }
 
+pub fn window_at_point(x: i32, y: i32) -> Option<(isize, (i32, i32, i32, i32))> {
+    unsafe {
+        let pt = POINT { x, y };
+        let hwnd = WindowFromPoint(pt);
+        if hwnd.is_null() {
+            return None;
+        }
+        let root = GetAncestor(hwnd, GA_ROOT);
+        let hwnd = if root.is_null() { hwnd } else { root };
+        let mut rect: RECT = mem::zeroed();
+        if GetWindowRect(hwnd, &mut rect as *mut RECT) == 0 {
+            return None;
+        }
+        Some((hwnd as isize, (rect.left, rect.top, rect.right, rect.bottom)))
+    }
+}
+
+pub fn window_rect(hwnd: isize) -> Option<(i32, i32, i32, i32)> {
+    unsafe {
+        let mut rect: RECT = mem::zeroed();
+        if GetWindowRect(hwnd as winapi::shared::windef::HWND, &mut rect as *mut RECT) == 0 {
+            return None;
+        }
+        Some((rect.left, rect.top, rect.right, rect.bottom))
+    }
+}
+
+pub fn set_window_foreground(hwnd: isize) {
+    unsafe {
+        let hwnd = hwnd as winapi::shared::windef::HWND;
+        if IsIconic(hwnd) != 0 {
+            ShowWindow(hwnd, SW_RESTORE);
+        }
+        SetForegroundWindow(hwnd);
+    }
+}
+
+pub fn is_window_valid(hwnd: isize) -> bool {
+    unsafe { IsWindow(hwnd as winapi::shared::windef::HWND) != 0 }
+}
+
 pub fn get_cursor_pos() -> Option<(i32, i32)> {
     unsafe {
         let mut out = mem::MaybeUninit::<POINT>::uninit();

@@ -1510,7 +1510,26 @@ class InputModel {
     return dt >= 0 && dt < kTouchAfterMouseWindowMs;
   }
 
+  final pickScreenContent = false.obs;
+  final screenContentMode = 'whole_desktop'.obs;
+
   void onPointDownImage(PointerDownEvent e) {
+    if (pickScreenContent.value) {
+      pickScreenContent.value = false;
+      final pos = _pointerPositionForRemoteCanvas(e);
+      final remote = handlePointerDevicePos(
+          kPointerEventKindMouse, pos.dx, pos.dy, false, kMouseEventTypeDefault);
+      if (remote != null) {
+        bind.sessionSelectScreenContent(
+          sessionId: sessionId,
+          display: parent.target?.ffiModel.pi.currentDisplay ?? 0,
+          x: remote.x.toInt(),
+          y: remote.y.toInt(),
+          wholeDesktop: false,
+        );
+      }
+      return;
+    }
     debugPrint("onPointDownImage ${e.kind}");
     _stopFling = true;
     if (isDesktop) _queryOtherWindowCoords = true;

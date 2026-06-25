@@ -650,6 +650,15 @@ class _GeneralState extends State<_General> {
         ).marginOnly(left: _kCheckBoxLeftMargin * 3),
       ));
     }
+    children.add(_OptionCheckBox(
+      context,
+      'Show screen content option on the main toolbar',
+      kOptionShowScreenContentMainToolbar,
+      isServer: false,
+      update: (_) {
+        reloadAllWindows();
+      },
+    ));
     return _Card(title: 'Other', children: children);
   }
 

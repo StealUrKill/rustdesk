@@ -1822,9 +1822,23 @@ impl<T: InvokeUiSession> Remote<T> {
                         }
                     }
                     Some(misc::Union::SwitchDisplay(s)) => {
+                        // Reset only when display dimensions change; same-size transitions must not reset.
+                        // Otherwise, the decoder may restart without a keyframe and corrupt the output.
+                        let size_changed = {
+                            let lc = self.handler.lc.read().unwrap();
+                            lc.peer_info
+                                .as_ref()
+                                .and_then(|pi| pi.displays.get(s.display as usize))
+                                .map(|d| d.width != s.width || d.height != s.height)
+                                .unwrap_or(true)
+                        };
                         self.handler.handle_peer_switch_display(&s);
-                        if let Some(thread) = self.video_threads.get_mut(&(s.display as usize)) {
-                            thread.video_sender.send(MediaData::Reset).ok();
+                        if size_changed {
+                            if let Some(thread) =
+                                self.video_threads.get_mut(&(s.display as usize))
+                            {
+                                thread.video_sender.send(MediaData::Reset).ok();
+                            }
                         }
 
                         let mut scale = 1.0;
